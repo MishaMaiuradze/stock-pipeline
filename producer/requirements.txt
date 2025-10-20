@@ -1,0 +1,4 @@
+kafka-python==2.0.2
+websocket-client==1.7.0
+requests==2.31.0
+python-binance==1.0.19
