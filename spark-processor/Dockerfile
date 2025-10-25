@@ -23,10 +23,9 @@ ENV PYTHONPATH=${SPARK_HOME}/python:${SPARK_HOME}/python/lib/py4j-0.10.9.7-src.z
 
 WORKDIR /app
 
-# Install Python packages
-RUN pip3 install --no-cache-dir psycopg2-binary==2.9.9 pyspark==3.4.1
+# Copy and install Python packages
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copy application
-COPY spark_processor.py .
-
+# Note: spark_processor.py will be mounted via volume in docker-compose.yml
 CMD ["python3", "spark_processor.py"]

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Flink Stream Processor - Processes Kafka stream and writes to PostgreSQL
+Kafka Consumer - Processes Kafka stream and writes to PostgreSQL in real-time
 """
 import json
 import logging
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'kafka:9092')
 KAFKA_TOPIC = os.getenv('KAFKA_TOPIC', 'binance-prices')
-KAFKA_GROUP_ID = 'flink-processor-group'
+KAFKA_GROUP_ID = os.getenv('KAFKA_GROUP_ID', 'kafka-consumer-group')
 
 POSTGRES_CONFIG = {
     'host': os.getenv('POSTGRES_HOST', 'postgres'),
@@ -32,7 +32,7 @@ POSTGRES_CONFIG = {
     'password': os.getenv('POSTGRES_PASSWORD', 'admin123')
 }
 
-class FlinkProcessor:
+class StreamProcessor:
     def __init__(self):
         self.consumer = None
         self.db_pool = None
@@ -148,12 +148,13 @@ class FlinkProcessor:
         logger.info("Processor closed")
 
 def main():
-    logger.info("Starting Flink Stream Processor...")
+    logger.info("Starting Kafka Stream Consumer...")
+    logger.info(f"Kafka: {KAFKA_BOOTSTRAP_SERVERS} | Topic: {KAFKA_TOPIC} | Group: {KAFKA_GROUP_ID}")
     
     # Wait a bit for services to be ready
     time.sleep(10)
     
-    processor = FlinkProcessor()
+    processor = StreamProcessor()
     processor.process_stream()
 
 if __name__ == "__main__":

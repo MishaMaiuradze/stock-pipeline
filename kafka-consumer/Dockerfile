@@ -5,6 +5,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY flink_processor.py .
+COPY kafka_consumer.py .
 
-CMD ["python", "-u", "flink_processor.py"]
+CMD ["python", "-u", "kafka_consumer.py"]

@@ -29,38 +29,42 @@
                              │
                              │ Stream
                              │
-              ┌──────────────┴──────────────┐
-              │                             │
-              │                             │
-  ┌───────────▼─────────┐       ┌──────────▼──────────┐
-  │ Flink Processor     │       │  Spark Processor    │
-  │ (Stream)            │       │  (Batch)            │
-  │                     │       │                     │
-  │ - Real-time         │       │ - 1-min aggregation │
-  │ - Low latency       │       │ - 5-min aggregation │
-  │ - Raw data write    │       │ - OHLC candles      │
-  │                     │       │ - Moving averages   │
-  └───────────┬─────────┘       └──────────┬──────────┘
-              │                            │
-              │ INSERT                     │ INSERT/UPDATE
-              │                            │
-              └──────────────┬─────────────┘
+                    ┌────────▼─────────┐
+                    │ Kafka Consumer   │
+                    │ (Real-time)      │
+                    │                  │
+                    │ - Low latency    │
+                    │ - Raw data write │
+                    │ - Python consumer│
+                    └────────┬─────────┘
+                             │
+                             │ INSERT real_time_prices
                              │
                 ┌────────────▼────────────┐
                 │   PostgreSQL 16         │
                 │                         │
                 │ Tables:                 │
-                │ ├─ real_time_prices     │
-                │ ├─ aggregated_1min      │
-                │ ├─ aggregated_5min      │
-                │ └─ latest_prices (MV)   │
-                │                         │
-                │ Volumes:                │
-                │ └─ postgres-data        │
-                └────────────┬────────────┘
-                             │
-                             │ JDBC Connection
-                             │
+                │ ├─ real_time_prices     │◄─────┐
+                │ ├─ aggregated_1min      │      │
+                │ ├─ aggregated_5min      │      │ JDBC Read
+                │ └─ latest_prices (MV)   │      │
+                │                         │      │
+                │ Volumes:                │      │
+                │ └─ postgres-data        │      │
+                └────────────┬────────────┘      │
+                             │                   │
+                             │ INSERT Aggregates │
+                             │                   │
+                    ┌────────▼─────────┐         │
+                    │  Spark Processor │─────────┘
+                    │  (Batch)         │
+                    │                  │ Reads from PostgreSQL
+                    │ - Reads real_time│ every 60 seconds
+                    │ - 1-min OHLC     │
+                    │ - 5-min OHLC     │
+                    │ - Writes back    │
+                    └──────────────────┘
+
                 ┌────────────▼────────────┐
                 │  Apache Superset        │
                 │                         │
@@ -87,16 +91,6 @@
 │  │              │  │  data        │  │  data        │            │
 │  └──────────────┘  └──────────────┘  └──────────────┘            │
 │                                                                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐            │
-│  │   Flink      │  │   Flink      │  │              │            │
-│  │  JobManager  │  │  TaskManager │  │              │            │
-│  │  Port: 8081  │  │              │  │              │            │
-│  │              │  │              │  │              │            │
-│  │  Volume:     │  │  Volume:     │  │              │            │
-│  │  flink-      │  │  flink-      │  │              │            │
-│  │  checkpoints │  │  checkpoints │  │              │            │
-│  └──────────────┘  └──────────────┘  └──────────────┘            │
-│                                                                     │
 │  ┌──────────────┐  ┌──────────────┐                               │
 │  │   Spark      │  │   Spark      │                               │
 │  │   Master     │  │   Worker     │                               │
@@ -109,12 +103,12 @@
 │  └──────────────┘  └──────────────┘                               │
 │                                                                     │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐            │
-│  │  Binance     │  │   Flink      │  │   Spark      │            │
-│  │  Producer    │  │  Processor   │  │  Processor   │            │
+│  │  Binance     │  │   Kafka      │  │   Spark      │            │
+│  │  Producer    │  │  Consumer    │  │  Processor   │            │
 │  │              │  │              │  │              │            │
-│  │  Python 3.11 │  │  Python 3.11 │  │  Python 3.11 │            │
-│  │  WebSocket   │  │  Kafka Con-  │  │  PySpark     │            │
-│  │  Client      │  │  sumer       │  │              │            │
+│  │  Python 3.11 │  │  Python 3.11 │  │  Python 3.9  │            │
+│  │  WebSocket   │  │  Kafka       │  │  PySpark     │            │
+│  │  Client      │  │  Consumer    │  │              │            │
 │  └──────────────┘  └──────────────┘  └──────────────┘            │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -127,20 +121,23 @@
   - No Zookeeper dependency
   - Self-managed metadata quorum
   - Persistent message queue
+  - 3 partitions for load balancing
 
 ### Stream Processing
-- **Apache Flink 1.18.1**
+- **Python Kafka Consumer** (kafka-python library)
   - Real-time data processing
-  - Exactly-once semantics
+  - Direct Kafka consumption
   - Low-latency ingestion
-  - Checkpointing for fault tolerance
+  - Connection pooling to PostgreSQL
+  - Consumer group coordination
 
 ### Batch Processing
-- **Apache Spark 3.5.0**
-  - Distributed data aggregation
-  - Window-based analytics
+- **Apache Spark 3.4.1**
+  - Reads from PostgreSQL (real_time_prices table)
+  - Window-based analytics (1-min and 5-min)
   - OHLC candle generation
-  - Scheduled batch jobs
+  - Scheduled batch jobs (every 60 seconds)
+  - Writes aggregations back to PostgreSQL
 
 ### Data Storage
 - **PostgreSQL 16**
@@ -157,7 +154,8 @@
   - Alert system
 
 ### Programming
-- **Python 3.11**
+- **Python 3.11** (Producer, Kafka Consumer)
+- **Python 3.9** (Spark Processor - for Java 11 compatibility)
   - Modern async support
   - Type hints
   - Performance improvements
@@ -215,7 +213,7 @@ CREATE TABLE stock.aggregated_prices_1min (
 ### Horizontal Scaling
 
 1. **Kafka Partitions**: Increase partitions for parallel processing
-2. **Flink TaskManagers**: Add more task managers for higher throughput
+2. **Kafka Consumers**: Add more consumer instances for higher throughput
 3. **Spark Workers**: Scale workers for faster batch processing
 
 ### Vertical Scaling
@@ -233,13 +231,13 @@ CREATE TABLE stock.aggregated_prices_1min (
 
 ### Processing Guarantees
 - **Kafka**: At-least-once delivery
-- **Flink**: Exactly-once with checkpointing
-- **Spark**: Fault-tolerant RDD transformations
+- **Kafka Consumer**: At-least-once processing with manual offset commits
+- **Spark**: Fault-tolerant batch processing with retries
 
 ### High Availability
 - Kafka: Replication factor (configurable)
 - PostgreSQL: Point-in-time recovery
-- Flink: Savepoints and checkpoints
+- Kafka Consumer: Consumer group coordination for failover
 
 ## Security Considerations
 
